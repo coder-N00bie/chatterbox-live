@@ -1,7 +1,7 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 
-const SUPABASE_URL = "https://oauwzvjxxcicegkkgdnl.supabase.co";
-const SUPABASE_KEY = "sb_publishable_asHBwWLPE9cLOy3AbnWO9Q_GTs900Eo";
+const SUPABASE_URL = "https://nzklfdjsdtemtzrfslfa.supabase.co";
+const SUPABASE_KEY = "sb_publishable_VuaPlhuHvgs3bM0diIKZ_Q_InkSXHT5";
 const MAX_PER_ROOM = 5;
 const MAX_TEXT = 600;
 const SEND_EVERY_MS = 100;
