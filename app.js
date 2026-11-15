@@ -59,8 +59,8 @@ function connectLobby() {
     .on("presence", { event: "sync" }, () => { lobbyState = lobby.presenceState(); renderLobby(); })
     .subscribe(status => {
       $("connDot").classList.toggle("on", status === "SUBSCRIBED");
-      if (status === "SUBSCRIBED") trackLobby();
-      else if (status !== "SUBSCRIBED") $("onlineCount").textContent = "reconnecting…";
+      if (status === "SUBSCRIBED") { lobbyState = lobby.presenceState(); renderLobby(); trackLobby(); }
+      else $("onlineCount").textContent = "reconnecting…";
     });
 }
 
