@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chatterbox Live</title>
+  <meta name="description" content="Live chat rooms where everyone sees each other type, letter by letter. No sign-in.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+  <header class="topbar">
+    <a class="logo" href="./" id="logoLink">Chatterbox<span>Live</span></a>
+    <div class="topinfo">
+      <span class="dot" id="connDot"></span>
+      <span id="onlineCount">connecting…</span>
+      <button class="ghost small hidden" id="editProfileBtn" type="button">✎ <span id="meName"></span></button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Welcome / profile -->
+    <section id="welcome" class="screen hidden">
+      <div class="card narrow">
+        <h1 id="welcomeTitle">Pull up a chair.</h1>
+        <p class="muted" id="welcomeSub">Pick a name and you're in. No account, no password — this device will remember you.</p>
+        <form id="profileForm" autocomplete="off">
+          <label>Name
+            <input id="nameInput" maxlength="24" required placeholder="e.g. Pixel">
+          </label>
+          <label>Where are you? <span class="muted">(optional)</span>
+            <input id="locInput" maxlength="24" placeholder="e.g. Ohio, the moon">
+          </label>
+          <button class="primary" type="submit">Enter the lobby →</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- Lobby -->
+    <section id="lobby" class="screen hidden">
+      <div class="lobby-grid">
+        <div>
+          <div class="section-head">
+            <h2>Open rooms</h2>
+            <span class="muted" id="roomCount"></span>
+          </div>
+          <ul id="roomList" class="room-list"></ul>
+          <p id="noRooms" class="empty hidden">No rooms are open right now. Start one — others will see it pop up here.</p>
+        </div>
+        <aside class="card">
+          <h3>Start a room</h3>
+          <form id="createForm" autocomplete="off">
+            <label>Room name
+              <input id="roomNameInput" maxlength="32" required placeholder="e.g. Late night talk">
+            </label>
+            <fieldset class="seg">
+              <label><input type="radio" name="rtype" value="public" checked> Public</label>
+              <label><input type="radio" name="rtype" value="private"> Private (link only)</label>
+            </fieldset>
+            <button class="primary" type="submit">Create &amp; join</button>
+          </form>
+          <hr>
+          <h3>Have a room code?</h3>
+          <form id="codeForm" autocomplete="off" class="row">
+            <input id="codeInput" maxlength="6" placeholder="ABC123" style="text-transform:uppercase">
+            <button type="submit">Join</button>
+          </form>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Room -->
+    <section id="room" class="screen hidden">
+      <div class="room-head">
+        <div>
+          <h2 id="roomTitle">Room</h2>
+          <span class="muted" id="roomMeta"></span>
+        </div>
+        <div class="room-actions">
+          <button type="button" id="copyLinkBtn">Copy invite link</button>
+          <button type="button" id="leaveBtn" class="danger">Leave</button>
+        </div>
+      </div>
+      <div id="slots" class="slots"></div>
+      <p class="hint muted">Everything you type shows up live for everyone — no Enter key needed. Up to 5 people per room.</p>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script type="module" src="app.js?v=1"></script>
+</body>
+</html>
