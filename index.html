@@ -8,14 +8,14 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=1">
+  <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
   <header class="topbar">
     <a class="logo" href="./" id="logoLink">Chatterbox<span>Live</span></a>
     <div class="topinfo">
       <span class="dot" id="connDot"></span>
-      <span id="onlineCount">connecting…</span>
+      <span id="onlineCount">connecting...</span>
       <button class="ghost small hidden" id="editProfileBtn" type="button">✎ <span id="meName"></span></button>
     </div>
   </header>
@@ -24,16 +24,16 @@
     <!-- Welcome / profile -->
     <section id="welcome" class="screen hidden">
       <div class="card narrow">
-        <h1 id="welcomeTitle">Pull up a chair.</h1>
-        <p class="muted" id="welcomeSub">Pick a name and you're in. No account, no password — this device will remember you.</p>
+        <h1 id="welcomeTitle">hey, who are you?</h1>
+        <p class="muted" id="welcomeSub">just type a name and hop in. no account, no password. we'll remember you next time you come back on this device.</p>
         <form id="profileForm" autocomplete="off">
-          <label>Name
-            <input id="nameInput" maxlength="24" required placeholder="e.g. Pixel">
+          <label>your name
+            <input id="nameInput" maxlength="24" required placeholder="whatever you want to be called">
           </label>
-          <label>Where are you? <span class="muted">(optional)</span>
-            <input id="locInput" maxlength="24" placeholder="e.g. Ohio, the moon">
+          <label>where you at? <span class="muted">(you can skip this)</span>
+            <input id="locInput" maxlength="24" placeholder="like ohio, or my room lol">
           </label>
-          <button class="primary" type="submit">Enter the lobby →</button>
+          <button class="primary" type="submit">let's go</button>
         </form>
       </div>
     </section>
@@ -43,29 +43,29 @@
       <div class="lobby-grid">
         <div>
           <div class="section-head">
-            <h2>Open rooms</h2>
+            <h2>rooms people are in</h2>
             <span class="muted" id="roomCount"></span>
           </div>
           <ul id="roomList" class="room-list"></ul>
-          <p id="noRooms" class="empty hidden">No rooms are open right now. Start one — others will see it pop up here.</p>
+          <p id="noRooms" class="empty hidden">nobody's chatting right now :( make a room and it'll show up here for everyone else.</p>
         </div>
         <aside class="card">
-          <h3>Start a room</h3>
+          <h3>make your own room</h3>
           <form id="createForm" autocomplete="off">
-            <label>Room name
-              <input id="roomNameInput" maxlength="32" required placeholder="e.g. Late night talk">
+            <label>call it something
+              <input id="roomNameInput" maxlength="32" required placeholder="like: bored after school">
             </label>
             <fieldset class="seg">
-              <label><input type="radio" name="rtype" value="public" checked> Public</label>
-              <label><input type="radio" name="rtype" value="private"> Private (link only)</label>
+              <label><input type="radio" name="rtype" value="public" checked> anyone can see it</label>
+              <label><input type="radio" name="rtype" value="private"> secret (only people with the link)</label>
             </fieldset>
-            <button class="primary" type="submit">Create &amp; join</button>
+            <button class="primary" type="submit">make it</button>
           </form>
           <hr>
-          <h3>Have a room code?</h3>
+          <h3>got a code from a friend?</h3>
           <form id="codeForm" autocomplete="off" class="row">
             <input id="codeInput" maxlength="6" placeholder="ABC123" style="text-transform:uppercase">
-            <button type="submit">Join</button>
+            <button type="submit">go</button>
           </form>
         </aside>
       </div>
@@ -79,17 +79,17 @@
           <span class="muted" id="roomMeta"></span>
         </div>
         <div class="room-actions">
-          <button type="button" id="copyLinkBtn">Copy invite link</button>
-          <button type="button" id="leaveBtn" class="danger">Leave</button>
+          <button type="button" id="copyLinkBtn">copy link for friends</button>
+          <button type="button" id="leaveBtn" class="danger">leave</button>
         </div>
       </div>
       <div id="slots" class="slots"></div>
-      <p class="hint muted">Everything you type shows up live for everyone — no Enter key needed. Up to 5 people per room.</p>
+      <p class="hint muted">heads up: people see every letter as you type it, even typos, so no need to hit enter. 5 people max per room.</p>
     </section>
   </main>
 
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="app.js?v=3"></script>
+  <script type="module" src="app.js?v=4"></script>
 </body>
 </html>

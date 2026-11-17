@@ -60,7 +60,7 @@ function connectLobby() {
     .subscribe(status => {
       $("connDot").classList.toggle("on", status === "SUBSCRIBED");
       if (status === "SUBSCRIBED") { lobbyState = lobby.presenceState(); renderLobby(); trackLobby(); }
-      else $("onlineCount").textContent = "reconnecting…";
+      else $("onlineCount").textContent = "hang on, reconnecting...";
     });
 }
 
@@ -71,7 +71,7 @@ function lobbyPeople() {
 function renderLobby() {
   const people = lobbyPeople();
   const devices = new Set(people.map(p => p.device));
-  $("onlineCount").textContent = `${devices.size} online`;
+  $("onlineCount").textContent = `${devices.size} ${devices.size === 1 ? "person" : "people"} here`;
 
   const rooms = new Map();
   for (const p of people) {
@@ -94,7 +94,7 @@ function renderLobby() {
     ppl.append(seats, document.createTextNode(r.people.map(p => p.name).join(", ")));
     info.append(ppl);
     const full = r.people.length >= MAX_PER_ROOM;
-    const btn = el("button", full ? "" : "primary", full ? "Full" : "Join");
+    const btn = el("button", full ? "" : "primary", full ? "full" : "join");
     btn.disabled = full || current?.id === r.id;
     btn.onclick = () => joinRoom(r.id, r.name, false);
     li.append(info, btn);
@@ -112,14 +112,14 @@ let sendTimer = null, lastSend = 0;
 
 async function joinRoom(id, name, priv) {
   id = clean(id, 6).toUpperCase();
-  if (!/^[A-Z0-9]{6}$/.test(id)) return toast("Room codes are 6 letters/numbers.");
+  if (!/^[A-Z0-9]{6}$/.test(id)) return toast("hmm, room codes are 6 letters or numbers. double check it?");
   if (current) await leaveRoom(true);
 
-  current = { id, name: clean(name, 32) || "Private room", priv };
+  current = { id, name: clean(name, 32) || "secret room", priv };
   myText = ""; texts = {}; members = []; slotEls = {};
   history.replaceState(null, "", "#" + id);
   $("roomTitle").textContent = current.name;
-  $("roomMeta").textContent = `Room code ${id}${priv ? " · private" : ""}`;
+  $("roomMeta").textContent = `code: ${id}${priv ? " · secret room" : ""}`;
   $("slots").replaceChildren();
   show("room");
 
@@ -131,10 +131,10 @@ async function joinRoom(id, name, priv) {
     .on("broadcast", { event: "text" }, ({ payload }) => onRemoteText(payload))
     .on("broadcast", { event: "meta" }, ({ payload }) => {
       // learn the real room name when joining by code/link
-      if (payload?.name && current && current.name === "Private room" && !current.named) {
+      if (payload?.name && current && current.name === "secret room" && !current.named) {
         current.name = clean(payload.name, 32); current.priv = !!payload.priv; current.named = true;
         $("roomTitle").textContent = current.name;
-        $("roomMeta").textContent = `Room code ${current.id}${current.priv ? " · private" : ""}`;
+        $("roomMeta").textContent = `code: ${current.id}${current.priv ? " · secret room" : ""}`;
         trackLobby();
       }
     })
@@ -154,13 +154,13 @@ function onRoomSync() {
     .sort((a, b) => a.joined - b.joined || a.key.localeCompare(b.key));
   const myIndex = members.findIndex(m => m.key === tabId);
   if (myIndex >= MAX_PER_ROOM) {
-    toast("That room is full (5 max).");
+    toast("sorry, that room's full (5 people max). try another one!");
     leaveRoom();
     return;
   }
   members = members.slice(0, MAX_PER_ROOM);
   // tell newcomers the room's name
-  if (current && (current.named || current.name !== "Private room")) {
+  if (current && (current.named || current.name !== "secret room")) {
     roomCh.send({ type: "broadcast", event: "meta", payload: { name: current.name, priv: current.priv } });
   }
   renderSlots();
@@ -182,11 +182,11 @@ function renderSlots() {
   });
   for (let i = members.length; i < MAX_PER_ROOM; i++) {
     const e = el("div", "slot empty-slot");
-    const h = el("div", "slot-head"); h.append(el("span", "where", "empty seat"));
+    const h = el("div", "slot-head"); h.append(el("span", "where", "open seat"));
     e.append(h, el("div", "slot-body"));
     box.append(e);
   }
-  $("roomMeta").textContent = `Room code ${current.id}${current.priv ? " · private" : ""} · ${members.length}/${MAX_PER_ROOM} here`;
+  $("roomMeta").textContent = `code: ${current.id}${current.priv ? " · secret room" : ""} · ${members.length} of ${MAX_PER_ROOM} seats taken`;
 }
 
 function buildSlot(m) {
@@ -204,10 +204,10 @@ function buildSlot(m) {
   if (me) {
     body = el("textarea");
     body.maxLength = MAX_TEXT;
-    body.placeholder = "Start typing — everyone sees it live…";
+    body.placeholder = "say something! everyone sees it as you type";
     body.value = myText;
     body.addEventListener("input", () => { myText = body.value.slice(-MAX_TEXT); sendText(); });
-    const clr = el("button", "ghost small", "Clear");
+    const clr = el("button", "ghost small", "clear");
     clr.type = "button";
     clr.onclick = () => { body.value = ""; myText = ""; sendText(true); body.focus(); };
     tools.append(clr);
@@ -215,12 +215,12 @@ function buildSlot(m) {
   } else {
     body = el("div", "slot-body");
     const isMuted = muted.has(m.device);
-    const mb = el("button", "ghost small", isMuted ? "Unmute" : "Mute");
+    const mb = el("button", "ghost small", isMuted ? "unmute" : "mute");
     mb.type = "button";
     mb.onclick = () => {
       if (muted.has(m.device)) muted.delete(m.device); else muted.add(m.device);
       store.set("muted", [...muted]);
-      mb.textContent = muted.has(m.device) ? "Unmute" : "Mute";
+      mb.textContent = muted.has(m.device) ? "unmute" : "mute";
       paintRemote(m.key);
     };
     tools.append(mb);
@@ -234,7 +234,7 @@ function buildSlot(m) {
 
 function paintRemote(key) {
   const s = slotEls[key]; if (!s) return;
-  if (muted.has(s.device)) { s.body.textContent = "(muted)"; s.body.classList.add("muted-text"); return; }
+  if (muted.has(s.device)) { s.body.textContent = "(you muted this person)"; s.body.classList.add("muted-text"); return; }
   s.body.classList.remove("muted-text");
   s.body.textContent = texts[key] || "";
   s.body.scrollTop = s.body.scrollHeight;
@@ -279,7 +279,7 @@ $("profileForm").addEventListener("submit", async e => {
   sb.rpc("touch_device", { p_id: deviceId, p_name: profile.name, p_location: profile.location }).then(() => {});
   if (!lobby) connectLobby(); else trackLobby();
   const pending = location.hash.slice(1);
-  if (/^[A-Za-z0-9]{6}$/.test(pending)) joinRoom(pending, "Private room", true);
+  if (/^[A-Za-z0-9]{6}$/.test(pending)) joinRoom(pending, "secret room", true);
   else { show("lobby"); renderLobby(); }
 });
 
@@ -298,13 +298,13 @@ $("codeForm").addEventListener("submit", e => {
   const c = $("codeInput").value.trim().toUpperCase();
   $("codeInput").value = "";
   const known = lobbyPeople().find(p => p.room === c && !p.priv);
-  joinRoom(c, known?.roomName || "Private room", !known);
+  joinRoom(c, known?.roomName || "secret room", !known);
 });
 
 $("leaveBtn").onclick = () => leaveRoom();
 $("copyLinkBtn").onclick = async () => {
   const url = location.origin + location.pathname + "#" + current.id;
-  try { await navigator.clipboard.writeText(url); toast("Invite link copied!"); }
+  try { await navigator.clipboard.writeText(url); toast("copied! send it to your friends"); }
   catch { toast(url); }
 };
 $("editProfileBtn").onclick = async () => {
@@ -317,7 +317,7 @@ window.addEventListener("beforeunload", () => { if (roomCh) roomCh.untrack(); })
 function openWelcome(first) {
   $("nameInput").value = profile?.name || "";
   $("locInput").value = profile?.location || "";
-  if (!first) { $("welcomeTitle").textContent = "Edit your name"; $("welcomeSub").textContent = "Changes are saved to this device."; }
+  if (!first) { $("welcomeTitle").textContent = "change your name"; $("welcomeSub").textContent = "this saves on this device, so you won't have to do it again."; }
   show("welcome");
   $("nameInput").focus();
 }
@@ -334,8 +334,8 @@ function openWelcome(first) {
   }
   connectLobby();
   sb.rpc("touch_device", { p_id: deviceId, p_name: profile.name, p_location: profile.location || "" })
-    .then(({ data }) => { if (data?.visits > 1) toast(`Welcome back, ${profile.name}! (visit #${data.visits})`); });
+    .then(({ data }) => { if (data?.visits > 1) toast(`hey ${profile.name}, welcome back!`); });
   const hash = location.hash.slice(1);
-  if (/^[A-Za-z0-9]{6}$/.test(hash)) joinRoom(hash, "Private room", true);
+  if (/^[A-Za-z0-9]{6}$/.test(hash)) joinRoom(hash, "secret room", true);
   else { show("lobby"); renderLobby(); }
 })();
