@@ -147,6 +147,29 @@ button.on { background: var(--accent); color: var(--accent-ink); border-color: t
 .tube-empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 20px; color: var(--muted); }
 .tube-note { padding: 6px 12px; font-size: .85rem; color: var(--muted); border-top: 1px solid var(--line); }
 
+/* Admin */
+.foot { text-align: center; font-size: .82rem; padding: 0 16px 24px; }
+.foot a, .back-link { color: var(--muted); }
+.foot a:hover, .back-link:hover { color: var(--accent); }
+.admin-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
+.admin-filters input { flex: 1; min-width: 180px; max-width: 320px; padding: 5px 10px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.admin-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.admin-table th { text-align: left; font-weight: 600; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel-2); white-space: nowrap; }
+.admin-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.admin-table tr:last-child td { border-bottom: 0; }
+.admin-table .ip { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .85rem; overflow-wrap: anywhere; }
+.admin-table .old-ips { color: var(--muted); font-size: .78rem; }
+.admin-table .acts { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.admin-table .sub { color: var(--muted); font-size: .8rem; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: .78rem; font-weight: 600; background: var(--panel-2); color: var(--muted); white-space: nowrap; }
+.pill.here { background: #173d20; color: var(--ok); }
+.pill.ban { background: #3d1714; color: var(--danger); }
+.admin-sub { margin-top: 22px; }
+.admin-ipform { max-width: 520px; margin-bottom: 10px; }
+.ban-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ban-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: .9rem; }
+
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
   background: var(--accent); color: var(--accent-ink); padding: 9px 16px; border-radius: 8px; font-weight: 600;

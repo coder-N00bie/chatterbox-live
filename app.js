@@ -34,7 +34,8 @@ function toast(msg) {
   clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add("hidden"), 2600);
 }
 function show(screen) {
-  for (const s of ["welcome", "lobby", "room"]) $(s).classList.toggle("hidden", s !== screen);
+  for (const s of ["welcome", "lobby", "room", "banned", "admin"]) $(s).classList.toggle("hidden", s !== screen);
+  if (screen !== "admin") clearInterval(adminTimer);
   $("editProfileBtn").classList.toggle("hidden", !profile || screen === "welcome");
   if (profile) $("meName").textContent = profile.name;
 }
@@ -56,7 +57,7 @@ function trackLobby() { if (lobby && profile) lobby.track(myLobbyMeta()); }
 function connectLobby() {
   lobby = sb.channel("cbl-lobby", { config: { presence: { key: tabId } } });
   lobby
-    .on("presence", { event: "sync" }, () => { lobbyState = lobby.presenceState(); renderLobby(); })
+    .on("presence", { event: "sync" }, () => { lobbyState = lobby.presenceState(); renderLobby(); if (adminData) renderAdmin(); })
     .subscribe(status => {
       $("connDot").classList.toggle("on", status === "SUBSCRIBED");
       if (status === "SUBSCRIBED") { lobbyState = lobby.presenceState(); renderLobby(); trackLobby(); }
@@ -112,6 +113,7 @@ let sendTimer = null, lastSend = 0;
 let kicked = new Set();         // devices voted out of the current room
 
 async function joinRoom(id, name, priv) {
+  if (isBanned) return;
   id = clean(id, 6).toUpperCase();
   if (!/^[A-Z0-9]{6}$/.test(id)) return toast("hmm, room codes are 6 letters or numbers. double check it?");
   const bans = store.get("bans", {});
@@ -633,14 +635,201 @@ $("tubeStopBtn").onclick = () => {
   applyTube(null);
 };
 
+/* ---------- bans + admin kicks (checked against the server every 15s) ---------- */
+let isBanned = false, kickBase, checkTimer = null;
+async function checkMe() {
+  const { data, error } = await sb.rpc("check_me", { p_id: deviceId });
+  if (error || !data) return;
+  if (data.banned) return goBanned();
+  const k = data.kicked_at || null;
+  if (kickBase === undefined) kickBase = k;
+  else if (k !== kickBase) {
+    kickBase = k;
+    if (current) leaveRoom();
+    toast("an admin kicked you out");
+  }
+}
+function goBanned() {
+  if (isBanned) return;
+  isBanned = true;
+  if (current) leaveRoom(true);
+  if (lobby) { sb.removeChannel(lobby); lobby = null; }
+  $("connDot").classList.remove("on");
+  $("onlineCount").textContent = "";
+  if (!$("admin").classList.contains("hidden")) return; // let the admin screen stay usable
+  show("banned");
+}
+
+/* ---------- admin mode ---------- */
+let adminCode = null, adminData = null, adminFilter = "all", adminTimer = null;
+const regionNames = (() => { try { return new Intl.DisplayNames(["en"], { type: "region" }); } catch { return null; } })();
+const flag = cc => /^[A-Z]{2}$/.test(cc || "") ? String.fromCodePoint(...[...cc].map(c => 127397 + c.charCodeAt(0))) : "🌐";
+function countryName(cc) { if (!cc) return "unknown"; try { return regionNames?.of(cc) || cc; } catch { return cc; } }
+function ago(ts, now) {
+  const s = Math.max(0, (new Date(now) - new Date(ts)) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + " min ago";
+  if (s < 86400) return Math.floor(s / 3600) + " h ago";
+  return Math.floor(s / 86400) + " days ago";
+}
+const sessGet = () => { try { return sessionStorage.getItem("cbl.admin"); } catch { return null; } };
+const sessSet = v => { try { v ? sessionStorage.setItem("cbl.admin", v) : sessionStorage.removeItem("cbl.admin"); } catch {} };
+
+function openAdmin() {
+  if (current) leaveRoom(true);
+  history.replaceState(null, "", "#admin");
+  show("admin");
+  adminCode = sessGet();
+  $("adminPanel").classList.add("hidden");
+  $("adminLogin").classList.remove("hidden");
+  if (adminCode) adminLoad(); else $("adminCode").focus();
+}
+function closeAdmin() {
+  adminCode = null; adminData = null; sessSet(null); clearInterval(adminTimer);
+  history.replaceState(null, "", location.pathname);
+  if (isBanned) show("banned");
+  else if (profile) { show("lobby"); renderLobby(); }
+  else openWelcome(true);
+}
+async function adminCall(fn, args = {}) {
+  const { data, error } = await sb.rpc(fn, { p_code: adminCode, ...args });
+  if (error) { toast("something broke: " + error.message); return null; }
+  if (data?.error === "nope") {
+    adminCode = null; sessSet(null); clearInterval(adminTimer);
+    $("adminPanel").classList.add("hidden"); $("adminLogin").classList.remove("hidden");
+    toast("wrong code (or locked out for a bit)");
+    return null;
+  }
+  if (data?.error) { toast(data.error); return null; }
+  return data;
+}
+async function adminLoad() {
+  const d = await adminCall("admin_list");
+  if (!d) return;
+  adminData = d;
+  sessSet(adminCode);
+  $("adminLogin").classList.add("hidden");
+  $("adminPanel").classList.remove("hidden");
+  renderAdmin();
+  clearInterval(adminTimer);
+  adminTimer = setInterval(() => { if (!document.hidden) adminLoad(); }, 10000);
+}
+function renderAdmin() {
+  if (!adminData) return;
+  const now = adminData.now;
+  const live = {};
+  for (const p of lobbyPeople()) if (p.device) live[p.device] = p;
+  const q = $("adminSearch").value.trim().toLowerCase();
+  const rows = adminData.devices.map(d => {
+    const lp = live[d.id];
+    const here = !!lp || (new Date(now) - new Date(d.last_seen)) < 40000;
+    return { ...d, lp, here };
+  }).filter(d => {
+    if (adminFilter === "here" && !d.here) return false;
+    if (adminFilter === "banned" && !d.dev_banned && !d.ip_banned) return false;
+    if (!q) return true;
+    return [d.name, d.location, d.ip, d.country, countryName(d.country), ...(d.ips || []).map(i => i.ip)]
+      .some(v => String(v || "").toLowerCase().includes(q));
+  });
+  const hereCount = adminData.devices.filter(d => live[d.id] || (new Date(now) - new Date(d.last_seen)) < 40000).length;
+  $("adminMeta").textContent = `${adminData.devices.length} devices have been here · ${hereCount} here now · ${adminData.bans.length} bans`;
+
+  const tb = $("adminRows");
+  tb.replaceChildren();
+  if (!rows.length) {
+    const tr = el("tr"); const td = el("td", "muted", "nobody matches."); td.colSpan = 6; tr.append(td); tb.append(tr);
+  }
+  for (const d of rows) {
+    const tr = el("tr");
+    const who = el("td");
+    who.append(el("div", null, d.name), el("div", "sub", (d.location ? `says: ${d.location} · ` : "") + "device " + d.id.slice(0, 8)));
+    const from = el("td", null, `${flag(d.country)} ${countryName(d.country)}`);
+    const ipTd = el("td", "ip", d.ip || "not seen yet");
+    const others = (d.ips || []).filter(i => i.ip !== d.ip);
+    if (others.length) ipTd.append(el("div", "old-ips", "also used: " + others.slice(0, 4).map(i => `${i.ip} (${countryName(i.country)})`).join(", ")));
+    const st = el("td");
+    if (d.here) st.append(el("span", "pill here", d.lp?.room ? `here · in "${d.lp.roomName || d.lp.room}"` : "here now"));
+    else st.append(el("span", "pill", "seen " + ago(d.last_seen, now)));
+    if (d.dev_banned) st.append(" ", el("span", "pill ban", "banned"));
+    if (d.ip_banned) st.append(" ", el("span", "pill ban", "IP banned"));
+    const visits = el("td", null, String(d.visits));
+    const acts = el("td"); const box = el("div", "acts"); acts.append(box);
+    const label = `${d.name} (${countryName(d.country)})`;
+    if (d.here) {
+      const k = el("button", "small", "kick");
+      k.onclick = async () => { if (await adminCall("admin_kick", { p_device: d.id })) { toast(`kicked ${d.name}`); adminLoad(); } };
+      box.append(k);
+    }
+    const b = el("button", "small danger", d.dev_banned ? "unban" : "ban");
+    b.onclick = async () => {
+      if (d.dev_banned) { if (await adminCall("admin_unban", { p_kind: "device", p_value: d.id })) adminLoad(); return; }
+      if (!confirm(`ban ${d.name}'s device from the whole site?`)) return;
+      if (await adminCall("admin_ban", { p_kind: "device", p_value: d.id, p_label: label })) { toast(`banned ${d.name}`); adminLoad(); }
+    };
+    box.append(b);
+    if (d.ip) {
+      const ib = el("button", "small danger", d.ip_banned ? "un-IP-ban" : "IP ban");
+      ib.onclick = async () => {
+        if (d.ip_banned) { if (await adminCall("admin_unban", { p_kind: "ip", p_value: d.ip })) adminLoad(); return; }
+        if (!confirm(`IP ban ${d.ip}? everyone on that internet connection (like their whole house or school) gets blocked.`)) return;
+        if (await adminCall("admin_ban", { p_kind: "ip", p_value: d.ip, p_label: label })) { toast(`IP banned ${d.ip}`); adminLoad(); }
+      };
+      box.append(ib);
+    }
+    tr.append(who, from, ipTd, st, visits, acts);
+    tb.append(tr);
+  }
+
+  const bl = $("adminBans");
+  bl.replaceChildren();
+  if (!adminData.bans.length) bl.append(el("li", "muted", "nobody's banned."));
+  for (const ban of adminData.bans) {
+    const li = el("li");
+    const txt = el("span", null, `${ban.kind === "ip" ? "IP " + ban.value : "device " + ban.value.slice(0, 8)}${ban.label ? " · " + ban.label : ""} · ${ago(ban.created_at, now)}`);
+    const u = el("button", "small", "unban");
+    u.onclick = async () => { if (await adminCall("admin_unban", { p_kind: ban.kind, p_value: ban.value })) adminLoad(); };
+    li.append(txt, u);
+    bl.append(li);
+  }
+}
+
+$("adminLink").onclick = e => { e.preventDefault(); openAdmin(); };
+$("adminBack").onclick = e => { e.preventDefault(); closeAdmin(); };
+$("adminExit").onclick = () => closeAdmin();
+$("adminRefresh").onclick = () => adminLoad();
+$("adminForm").addEventListener("submit", e => {
+  e.preventDefault();
+  adminCode = $("adminCode").value;
+  $("adminCode").value = "";
+  if (adminCode) adminLoad();
+});
+$("adminSearch").addEventListener("input", renderAdmin);
+for (const b of document.querySelectorAll("[data-af]")) b.onclick = () => {
+  adminFilter = b.dataset.af;
+  for (const x of document.querySelectorAll("[data-af]")) x.classList.toggle("on", x === b);
+  renderAdmin();
+};
+$("adminIpForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const ip = $("adminIpInput").value.trim();
+  if (!/^[0-9a-fA-F:.]{3,45}$/.test(ip)) return toast("that doesn't look like an IP address");
+  if (!confirm(`IP ban ${ip}?`)) return;
+  if (await adminCall("admin_ban", { p_kind: "ip", p_value: ip, p_label: "added by hand" })) { $("adminIpInput").value = ""; toast(`IP banned ${ip}`); adminLoad(); }
+});
+$("adminNewCode").onclick = async () => {
+  const n = prompt("new admin code (at least 8 characters):");
+  if (!n) return;
+  if (await adminCall("admin_set_code", { p_new: n })) { adminCode = n; sessSet(n); toast("admin code changed"); }
+};
+
 /* ---------- UI wiring ---------- */
 $("profileForm").addEventListener("submit", async e => {
   e.preventDefault();
   const name = clean($("nameInput").value, 24);
-  if (!name) return;
+  if (!name || isBanned) return;
   profile = { name, location: clean($("locInput").value, 24) };
   store.set("profile", profile);
-  sb.rpc("touch_device", { p_id: deviceId, p_name: profile.name, p_location: profile.location }).then(() => {});
+  sb.rpc("touch_device", { p_id: deviceId, p_name: profile.name, p_location: profile.location }).then(({ data }) => { if (data?.banned) goBanned(); });
   if (!lobby) connectLobby(); else trackLobby();
   const pending = location.hash.slice(1);
   if (/^[A-Za-z0-9]{6}$/.test(pending)) joinRoom(pending, "secret room", true);
@@ -688,6 +877,10 @@ function openWelcome(first) {
 
 /* ---------- boot ---------- */
 (async function boot() {
+  if (location.hash === "#admin") { connectLobby(); openAdmin(); checkMe(); checkTimer = setInterval(checkMe, 15000); return; }
+  await checkMe();
+  checkTimer = setInterval(checkMe, 15000);
+  if (isBanned) return;
   if (!profile) {
     openWelcome(true);
     // the device might be known to the server even if the profile was cleared from this browser

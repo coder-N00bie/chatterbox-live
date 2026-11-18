@@ -8,7 +8,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23050403'/><text x='50' y='72' font-size='64' text-anchor='middle' fill='%23ff9a1f' font-family='monospace'>C</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
   <header class="topbar">
@@ -21,6 +21,58 @@
   </header>
 
   <main>
+    <!-- Banned -->
+    <section id="banned" class="screen hidden">
+      <div class="card narrow">
+        <h1>you're banned</h1>
+        <p class="muted">an admin banned you from cooliomatic, so you can't get in anymore. if you think that's a mistake, talk to whoever runs this site.</p>
+      </div>
+    </section>
+
+    <!-- Admin -->
+    <section id="admin" class="screen hidden">
+      <div id="adminLogin" class="card narrow">
+        <h2>admin</h2>
+        <p class="muted">type the admin code. too many wrong tries locks you out for 15 minutes.</p>
+        <form id="adminForm" autocomplete="off" class="row">
+          <input id="adminCode" type="password" placeholder="admin code">
+          <button class="primary" type="submit">open</button>
+        </form>
+        <p><a href="./" class="back-link" id="adminBack">← back</a></p>
+      </div>
+      <div id="adminPanel" class="hidden">
+        <div class="room-head">
+          <div>
+            <h2>admin</h2>
+            <span class="muted" id="adminMeta"></span>
+          </div>
+          <div class="room-actions">
+            <button type="button" id="adminRefresh">refresh</button>
+            <button type="button" id="adminNewCode">change code</button>
+            <button type="button" id="adminExit" class="danger">close admin</button>
+          </div>
+        </div>
+        <div class="admin-filters">
+          <button type="button" class="small on" data-af="all">everyone</button>
+          <button type="button" class="small" data-af="here">here now</button>
+          <button type="button" class="small" data-af="banned">banned</button>
+          <input id="adminSearch" placeholder="search name, IP or country">
+        </div>
+        <div class="table-wrap">
+          <table class="admin-table">
+            <thead><tr><th>who</th><th>where from</th><th>IP address</th><th>status</th><th>visits</th><th></th></tr></thead>
+            <tbody id="adminRows"></tbody>
+          </table>
+        </div>
+        <h3 class="admin-sub">bans</h3>
+        <form id="adminIpForm" class="row admin-ipform" autocomplete="off">
+          <input id="adminIpInput" placeholder="ban an IP address by hand, like 203.0.113.7">
+          <button type="submit" class="danger">IP ban</button>
+        </form>
+        <ul id="adminBans" class="ban-list"></ul>
+      </div>
+    </section>
+
     <!-- Welcome / profile -->
     <section id="welcome" class="screen hidden">
       <div class="card narrow">
@@ -120,8 +172,12 @@
     </section>
   </main>
 
+  <footer class="foot muted">
+    we save your IP address and rough country so trolls can be banned. <a href="#admin" id="adminLink">admin</a>
+  </footer>
+
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="app.js?v=6"></script>
+  <script type="module" src="app.js?v=7"></script>
 </body>
 </html>
