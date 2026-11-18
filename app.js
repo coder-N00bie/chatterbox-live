@@ -109,13 +109,20 @@ let texts = {};                // key -> text
 let slotEls = {};              // key -> {slot, body, dot}
 let myText = "";
 let sendTimer = null, lastSend = 0;
+let kicked = new Set();         // devices voted out of the current room
 
 async function joinRoom(id, name, priv) {
   id = clean(id, 6).toUpperCase();
   if (!/^[A-Z0-9]{6}$/.test(id)) return toast("hmm, room codes are 6 letters or numbers. double check it?");
+  const bans = store.get("bans", {});
+  if (bans[id] && bans[id] > Date.now()) {
+    const mins = Math.ceil((bans[id] - Date.now()) / 60000);
+    return toast(`you got voted out of that room. you can go back in ${mins} min.`);
+  }
   if (current) await leaveRoom(true);
 
   current = { id, name: clean(name, 32) || "secret room", priv };
+  kicked = new Set(); endVote(); resetBoard(); resetTube();
   myText = ""; texts = {}; members = []; slotEls = {};
   history.replaceState(null, "", "#" + id);
   $("roomTitle").textContent = current.name;
@@ -127,14 +134,22 @@ async function joinRoom(id, name, priv) {
   roomCh = sb.channel("cbl-room-" + id, { config: { presence: { key: tabId }, broadcast: { self: false } } });
   roomCh
     .on("presence", { event: "sync" }, () => onRoomSync())
-    .on("presence", { event: "join" }, ({ key }) => { if (key !== tabId) sendText(true); })
+    .on("presence", { event: "join" }, ({ key }) => { if (key !== tabId) { sendText(true); maybeSendSnapshot(key); maybeSendTube(key); } })
     .on("broadcast", { event: "text" }, ({ payload }) => onRemoteText(payload))
+    .on("broadcast", { event: "draw" }, ({ payload }) => drawRemote(payload))
+    .on("broadcast", { event: "tube" }, ({ payload }) => onRemoteTube(payload))
+    .on("broadcast", { event: "tube-stop" }, () => applyTube(null))
+    .on("broadcast", { event: "board-clear" }, () => clearBoard(false))
+    .on("broadcast", { event: "board-snap" }, ({ payload }) => onSnapshotChunk(payload))
+    .on("broadcast", { event: "vote-start" }, ({ payload }) => onVoteStart(payload))
+    .on("broadcast", { event: "vote-cast" }, ({ payload }) => onVoteCast(payload))
+    .on("broadcast", { event: "kick" }, ({ payload }) => { if (payload?.device === deviceId) getKicked(); else if (payload?.device) kicked.add(payload.device); })
     .on("broadcast", { event: "meta" }, ({ payload }) => {
       // learn the real room name when joining by code/link
       if (payload?.name && current && current.name === "secret room" && !current.named) {
         current.name = clean(payload.name, 32); current.priv = !!payload.priv; current.named = true;
         $("roomTitle").textContent = current.name;
-        $("roomMeta").textContent = `code: ${current.id}${current.priv ? " · secret room" : ""}`;
+        setMeta();
         trackLobby();
       }
     })
@@ -150,7 +165,7 @@ function onRoomSync() {
   if (!roomCh) return;
   const st = roomCh.presenceState();
   members = Object.entries(st).map(([key, metas]) => ({ key, ...metas[metas.length - 1] }))
-    .filter(m => m.name)
+    .filter(m => m.name && (m.key === tabId || !kicked.has(m.device)))
     .sort((a, b) => a.joined - b.joined || a.key.localeCompare(b.key));
   const myIndex = members.findIndex(m => m.key === tabId);
   if (myIndex >= MAX_PER_ROOM) {
@@ -159,6 +174,12 @@ function onRoomSync() {
     return;
   }
   members = members.slice(0, MAX_PER_ROOM);
+  // anyone who was voted out but came back gets told to leave again
+  for (const [key, metas] of Object.entries(st)) {
+    const d = metas[metas.length - 1]?.device;
+    if (key !== tabId && kicked.has(d)) roomCh.send({ type: "broadcast", event: "kick", payload: { device: d } });
+  }
+  if (vote && !members.some(m => m.key === vote.target)) endVote();
   // tell newcomers the room's name
   if (current && (current.named || current.name !== "secret room")) {
     roomCh.send({ type: "broadcast", event: "meta", payload: { name: current.name, priv: current.priv } });
@@ -186,6 +207,10 @@ function renderSlots() {
     e.append(h, el("div", "slot-body"));
     box.append(e);
   }
+  setMeta();
+}
+function setMeta() {
+  if (!current) return;
   $("roomMeta").textContent = `code: ${current.id}${current.priv ? " · secret room" : ""} · ${members.length} of ${MAX_PER_ROOM} seats taken`;
 }
 
@@ -224,6 +249,11 @@ function buildSlot(m) {
       paintRemote(m.key);
     };
     tools.append(mb);
+    const kb = el("button", "ghost small kick-btn", "kick?");
+    kb.type = "button";
+    kb.title = "start a vote to kick this person";
+    kb.onclick = () => startVote(m);
+    tools.append(kb);
   }
   slot.append(head, body);
   const s = { slot, body, dot, device: m.device };
@@ -264,10 +294,344 @@ function sendText(now = false) {
 async function leaveRoom(silent = false) {
   if (roomCh) { const ch = roomCh; roomCh = null; try { await ch.untrack(); } catch {} sb.removeChannel(ch); }
   current = null;
+  endVote(); resetTube();
   history.replaceState(null, "", location.pathname);
   trackLobby();
   if (!silent) { show("lobby"); renderLobby(); }
 }
+
+/* ---------- Coolioboard (shared drawing) ---------- */
+const board = $("board");
+const bctx = board.getContext("2d");
+const COLORS = ["#ffb347", "#5ff2ff", "#9dff5c", "#ff6ad5", "#fff35c", "#ffffff", "#ff5a3c"];
+let pen = { c: COLORS[0], s: 7, e: false };
+let boardDirty = false;
+let drawing = false, lastPt = null, pending = [], flushTimer = null;
+let snapBuf = {};
+
+function strokeLine(pts, c, s, e) {
+  bctx.save();
+  bctx.globalCompositeOperation = e ? "destination-out" : "source-over";
+  bctx.strokeStyle = c; bctx.lineWidth = s; bctx.lineCap = "round"; bctx.lineJoin = "round";
+  bctx.beginPath();
+  bctx.moveTo(pts[0], pts[1]);
+  if (pts.length === 2) bctx.lineTo(pts[0] + 0.01, pts[1]);
+  for (let i = 2; i + 1 < pts.length; i += 2) bctx.lineTo(pts[i], pts[i + 1]);
+  bctx.stroke();
+  bctx.restore();
+  if (!e) boardDirty = true;
+}
+function boardPoint(ev) {
+  const r = board.getBoundingClientRect();
+  return [Math.round((ev.clientX - r.left) * board.width / r.width), Math.round((ev.clientY - r.top) * board.height / r.height)];
+}
+board.addEventListener("pointerdown", ev => {
+  if (!roomCh) return;
+  board.setPointerCapture(ev.pointerId);
+  drawing = true; lastPt = boardPoint(ev); pending = [...lastPt];
+  strokeLine(lastPt, pen.c, pen.s, pen.e); scheduleFlush();
+});
+board.addEventListener("pointermove", ev => {
+  if (!drawing) return;
+  const p = boardPoint(ev);
+  strokeLine([...lastPt, ...p], pen.c, pen.s, pen.e);
+  lastPt = p; pending.push(...p); scheduleFlush();
+});
+const stopDrawing = () => { if (drawing) { drawing = false; flushDraw(); } };
+board.addEventListener("pointerup", stopDrawing);
+board.addEventListener("pointercancel", stopDrawing);
+
+function scheduleFlush() { if (!flushTimer) flushTimer = setTimeout(flushDraw, 60); }
+function flushDraw() {
+  clearTimeout(flushTimer); flushTimer = null;
+  if (roomCh && pending.length >= 2) roomCh.send({ type: "broadcast", event: "draw", payload: { c: pen.c, s: pen.s, e: pen.e, p: pending } });
+  pending = drawing && lastPt ? [...lastPt] : [];
+}
+function drawRemote(p) {
+  if (!p || !Array.isArray(p.p) || p.p.length < 2 || p.p.length > 4000) return;
+  if (!/^#[0-9a-f]{6}$/i.test(p.c) || !(p.s >= 1 && p.s <= 40)) return;
+  if (!p.p.every(n => typeof n === "number" && isFinite(n))) return;
+  strokeLine(p.p, p.c, p.s, !!p.e);
+}
+function clearBoard(broadcast) {
+  bctx.clearRect(0, 0, board.width, board.height);
+  boardDirty = false;
+  if (broadcast && roomCh) roomCh.send({ type: "broadcast", event: "board-clear", payload: {} });
+}
+function resetBoard() { clearBoard(false); snapBuf = {}; pending = []; drawing = false; }
+
+// the person who's been here longest hands the drawing to newcomers
+function maybeSendSnapshot(newKey) {
+  setTimeout(() => {
+    if (!roomCh || !boardDirty) return;
+    const others = members.filter(m => m.key !== newKey);
+    if (others[0]?.key !== tabId) return;
+    const data = board.toDataURL("image/png");
+    const id = uuid().slice(0, 8), size = 60000, n = Math.ceil(data.length / size);
+    for (let i = 0; i < n; i++) {
+      setTimeout(() => roomCh?.send({ type: "broadcast", event: "board-snap", payload: { to: newKey, id, i, n, d: data.slice(i * size, (i + 1) * size) } }), i * 150);
+    }
+  }, 700);
+}
+function onSnapshotChunk(p) {
+  if (!p || p.to !== tabId || typeof p.d !== "string" || typeof p.id !== "string" || !(p.n > 0 && p.n < 80) || !(p.i >= 0 && p.i < p.n)) return;
+  const b = snapBuf[p.id] ||= { n: p.n, parts: [], got: 0 };
+  if (b.parts[p.i] == null) { b.parts[p.i] = p.d; b.got++; }
+  if (b.got < b.n) return;
+  delete snapBuf[p.id];
+  const url = b.parts.join("");
+  if (!url.startsWith("data:image/png;base64,")) return;
+  const img = new Image();
+  img.onload = () => {
+    bctx.save(); bctx.globalCompositeOperation = "destination-over";
+    bctx.drawImage(img, 0, 0, board.width, board.height);
+    bctx.restore(); boardDirty = true;
+  };
+  img.src = url;
+}
+
+// toolbar
+const swatchBox = $("swatches");
+COLORS.forEach((c, i) => {
+  const b = el("button", "swatch" + (i === 0 ? " on" : ""));
+  b.type = "button"; b.style.background = c; b.title = "pick this color";
+  b.onclick = () => {
+    pen.c = c; pen.e = false; $("eraserBtn").classList.remove("on");
+    swatchBox.querySelectorAll(".swatch").forEach(x => x.classList.toggle("on", x === b));
+  };
+  swatchBox.append(b);
+});
+document.querySelectorAll("[data-size]").forEach(b => b.onclick = () => {
+  pen.s = +b.dataset.size;
+  document.querySelectorAll("[data-size]").forEach(x => x.classList.toggle("on", x === b));
+});
+$("eraserBtn").onclick = () => { pen.e = !pen.e; $("eraserBtn").classList.toggle("on", pen.e); };
+$("boardClearBtn").onclick = () => { if (confirm("wipe the whole board for everybody?")) clearBoard(true); };
+
+/* ---------- vote to kick ---------- */
+const VOTE_MS = 20000;
+const BAN_MS = 10 * 60000;
+let vote = null;
+
+const needed = v => Math.floor(v.eligible.size / 2) + 1;
+
+function startVote(m) {
+  if (vote) return toast("there's already a vote going on, hang on");
+  if (members.length < 3) return toast("you need at least 3 people here to vote someone out (or just leave lol)");
+  const payload = {
+    id: uuid().slice(0, 8), target: m.key, targetDevice: m.device, targetName: m.name,
+    starter: tabId, starterName: profile.name,
+    eligible: members.filter(x => x.key !== m.key).map(x => x.key),
+  };
+  roomCh.send({ type: "broadcast", event: "vote-start", payload });
+  onVoteStart(payload);
+}
+
+function onVoteStart(p) {
+  if (vote || !p || typeof p.id !== "string" || typeof p.target !== "string" || !Array.isArray(p.eligible)) return;
+  const here = new Set(members.map(m => m.key));
+  if (!here.has(p.target)) return;
+  const eligible = new Set(p.eligible.filter(k => here.has(k) && k !== p.target));
+  eligible.add(p.starter);
+  vote = {
+    id: p.id, target: p.target, targetDevice: p.targetDevice,
+    targetName: clean(p.targetName, 24) || "someone", starterName: clean(p.starterName, 24) || "someone",
+    eligible, yes: new Set([p.starter]), no: new Set(), ends: Date.now() + VOTE_MS,
+  };
+  vote.timer = setTimeout(() => finishVote(false), VOTE_MS);
+  vote.tick = setInterval(renderVote, 1000);
+  renderVote();
+  checkVote();
+}
+
+function castVote(yes) {
+  if (!vote || !vote.eligible.has(tabId) || vote.yes.has(tabId) || vote.no.has(tabId)) return;
+  const payload = { id: vote.id, voter: tabId, yes };
+  roomCh.send({ type: "broadcast", event: "vote-cast", payload });
+  onVoteCast(payload);
+}
+
+function onVoteCast(p) {
+  if (!vote || !p || p.id !== vote.id || !vote.eligible.has(p.voter) || vote.yes.has(p.voter) || vote.no.has(p.voter)) return;
+  (p.yes ? vote.yes : vote.no).add(p.voter);
+  renderVote();
+  checkVote();
+}
+
+function checkVote() {
+  if (!vote) return;
+  const need = needed(vote);
+  if (vote.yes.size >= need) finishVote(true);
+  else if (vote.no.size > vote.eligible.size - need) finishVote(false);
+}
+
+function finishVote(passed) {
+  if (!vote) return;
+  const v = vote;
+  endVote();
+  if (!passed) return toast(v.target === tabId ? "phew, the vote failed. you're staying." : `vote failed, ${v.targetName} gets to stay`);
+  if (v.target === tabId) return getKicked();
+  kicked.add(v.targetDevice);
+  toast(`${v.targetName} got voted out. bye!`);
+  roomCh?.send({ type: "broadcast", event: "kick", payload: { device: v.targetDevice } });
+  onRoomSync();
+}
+
+function endVote() {
+  if (vote) { clearTimeout(vote.timer); clearInterval(vote.tick); }
+  vote = null;
+  $("vote").classList.add("hidden");
+}
+
+function getKicked() {
+  if (!current) return;
+  const bans = store.get("bans", {});
+  for (const k in bans) if (bans[k] < Date.now()) delete bans[k];
+  bans[current.id] = Date.now() + BAN_MS;
+  store.set("bans", bans);
+  leaveRoom();
+  toast("the room voted you out :( you can come back in 10 min");
+}
+
+function renderVote() {
+  const box = $("vote");
+  if (!vote) return box.classList.add("hidden");
+  const secs = Math.max(0, Math.ceil((vote.ends - Date.now()) / 1000));
+  const msg = el("div");
+  if (vote.target === tabId) {
+    msg.append(document.createTextNode(`uh oh, ${vote.starterName} started a vote to kick you. `));
+  } else {
+    msg.append(document.createTextNode(`${vote.starterName} wants to kick `), el("b", null, vote.targetName), document.createTextNode(". kick them? "));
+  }
+  msg.append(el("span", "muted", `(${vote.yes.size}/${needed(vote)} yes needed · ${secs}s left)`));
+  const btns = el("div", "vbtns");
+  const voted = vote.yes.has(tabId) || vote.no.has(tabId);
+  if (vote.eligible.has(tabId) && !voted) {
+    const y = el("button", "danger", "yeah kick");
+    const n = el("button", null, "nah");
+    y.type = n.type = "button";
+    y.onclick = () => castVote(true);
+    n.onclick = () => castVote(false);
+    btns.append(y, n);
+  } else if (voted) {
+    btns.append(el("span", "muted", "you voted"));
+  }
+  box.replaceChildren(msg, btns);
+  box.classList.remove("hidden");
+}
+
+/* ---------- CoolioTube (watch youtube together) ---------- */
+let ytReady = null, player = null, loadedVid = null, tube = null;
+let applyingUntil = 0; // ignore our own player's events while applying someone else's change
+
+function loadYT() {
+  if (!ytReady) ytReady = new Promise(res => {
+    window.onYouTubeIframeAPIReady = res;
+    const s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api";
+    document.head.append(s);
+  });
+  return ytReady;
+}
+
+function parseVid(s) {
+  s = String(s || "").trim();
+  if (/^[\w-]{11}$/.test(s)) return s;
+  try {
+    const u = new URL(s);
+    let id = null;
+    if (u.hostname.endsWith("youtu.be")) id = u.pathname.slice(1, 12);
+    else if (u.searchParams.get("v")) id = u.searchParams.get("v").slice(0, 11);
+    else { const m = u.pathname.match(/\/(embed|shorts|live)\/([\w-]{11})/); if (m) id = m[2]; }
+    return id && /^[\w-]{11}$/.test(id) ? id : null;
+  } catch { return null; }
+}
+
+function tubeNow() {
+  if (!tube) return null;
+  let t = tube.t, playing = tube.playing;
+  try { if (player?.getCurrentTime) { t = player.getCurrentTime(); playing = player.getPlayerState() === YT.PlayerState.PLAYING; } } catch {}
+  return { vid: tube.vid, t, playing };
+}
+
+async function applyTube(s) {
+  tube = s;
+  $("tubeEmpty").classList.toggle("hidden", !!s);
+  $("tubeStopBtn").classList.toggle("hidden", !s);
+  if (!s) {
+    if (player?.stopVideo) { applyingUntil = Date.now() + 1500; player.stopVideo(); }
+    return;
+  }
+  await loadYT();
+  if (tube !== s || !current) return;
+  applyingUntil = Date.now() + 1500;
+  if (!player) {
+    player = await new Promise(res => {
+      const p = new YT.Player("ytPlayer", {
+        videoId: s.vid,
+        playerVars: { playsinline: 1, rel: 0, start: Math.floor(s.t) },
+        events: { onReady: () => res(p), onStateChange: onYTState },
+      });
+    });
+    loadedVid = s.vid;
+    if (tube !== s) return;
+    applyingUntil = Date.now() + 1500;
+  }
+  if (loadedVid !== s.vid) {
+    loadedVid = s.vid;
+    if (s.playing) player.loadVideoById(s.vid, s.t); else player.cueVideoById(s.vid, s.t);
+    return;
+  }
+  if (Math.abs(player.getCurrentTime() - s.t) > 1.5) player.seekTo(s.t, true);
+  if (s.playing) player.playVideo(); else player.pauseVideo();
+}
+
+function onYTState(e) {
+  if (!tube || !roomCh || Date.now() < applyingUntil) return;
+  if (e.data !== YT.PlayerState.PLAYING && e.data !== YT.PlayerState.PAUSED) return;
+  tube = { vid: tube.vid, t: player.getCurrentTime(), playing: e.data === YT.PlayerState.PLAYING };
+  roomCh.send({ type: "broadcast", event: "tube", payload: tube });
+}
+
+function onRemoteTube(p) {
+  if (!p || (p.to && p.to !== tabId)) return;
+  if (!/^[\w-]{11}$/.test(p.vid) || !(p.t >= 0) || typeof p.playing !== "boolean") return;
+  applyTube({ vid: p.vid, t: p.t, playing: p.playing });
+}
+
+function maybeSendTube(newKey) {
+  setTimeout(() => {
+    const s = tubeNow();
+    if (!roomCh || !s) return;
+    const others = members.filter(m => m.key !== newKey);
+    if (others[0]?.key !== tabId) return;
+    roomCh.send({ type: "broadcast", event: "tube", payload: { ...s, to: newKey } });
+  }, 900);
+}
+
+function resetTube() {
+  tube = null;
+  try { player?.destroy(); } catch {}
+  player = null; loadedVid = null;
+  if (!$("ytPlayer")) { const d = el("div"); d.id = "ytPlayer"; document.querySelector(".tube-screen").prepend(d); }
+  $("tubeEmpty").classList.remove("hidden");
+  $("tubeStopBtn").classList.add("hidden");
+}
+
+$("tubeForm").addEventListener("submit", e => {
+  e.preventDefault();
+  if (!roomCh) return;
+  const vid = parseVid($("tubeInput").value);
+  if (!vid) return toast("hmm, that doesn't look like a youtube link");
+  $("tubeInput").value = "";
+  const s = { vid, t: 0, playing: true };
+  roomCh.send({ type: "broadcast", event: "tube", payload: s });
+  applyTube(s);
+});
+$("tubeStopBtn").onclick = () => {
+  roomCh?.send({ type: "broadcast", event: "tube-stop", payload: {} });
+  applyTube(null);
+};
 
 /* ---------- UI wiring ---------- */
 $("profileForm").addEventListener("submit", async e => {

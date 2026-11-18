@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Chatterbox Live</title>
-  <meta name="description" content="Live chat rooms where everyone sees each other type, letter by letter. No sign-in.">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
+  <title>Cooliomatic</title>
+  <meta name="description" content="Cooliomatic: live chat rooms where everyone sees each other type, letter by letter, plus CoolioTube to watch youtube together and a shared Coolioboard to draw on. No sign-in.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23050403'/><text x='50' y='72' font-size='64' text-anchor='middle' fill='%23ff9a1f' font-family='monospace'>C</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=2">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
   <header class="topbar">
-    <a class="logo" href="./" id="logoLink">Chatterbox<span>Live</span></a>
+    <a class="logo" href="./" id="logoLink">coolio<i>matic</i></a>
     <div class="topinfo">
       <span class="dot" id="connDot"></span>
       <span id="onlineCount">connecting...</span>
@@ -83,13 +83,45 @@
           <button type="button" id="leaveBtn" class="danger">leave</button>
         </div>
       </div>
+      <div id="vote" class="vote hidden"></div>
       <div id="slots" class="slots"></div>
-      <p class="hint muted">heads up: people see every letter as you type it, even typos, so no need to hit enter. 5 people max per room.</p>
+      <p class="hint muted">heads up: people see every letter as you type it, even typos, so no need to hit enter. 5 people max per room. if someone's being a jerk, hit "kick?" on their box to start a vote.</p>
+
+      <div class="panel">
+        <div class="panel-bar">
+          <h3>CoolioTube</h3>
+          <form id="tubeForm" autocomplete="off">
+            <input id="tubeInput" placeholder="paste a youtube link">
+            <button class="primary small" type="submit">play for everyone</button>
+            <button class="small hidden" type="button" id="tubeStopBtn">stop</button>
+          </form>
+        </div>
+        <div class="tube-screen">
+          <div id="ytPlayer"></div>
+          <div class="tube-empty" id="tubeEmpty">nothing playing. paste a youtube link up there and everyone in the room watches it together.</div>
+        </div>
+        <div class="tube-note">play, pause and skipping around sync for everybody. if it doesn't start for you, just hit play.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-bar">
+          <h3>Coolioboard</h3>
+          <div class="panel-tools">
+            <span id="swatches" class="panel-tools"></span>
+            <button type="button" class="small" data-size="3">thin</button>
+            <button type="button" class="small on" data-size="7">mid</button>
+            <button type="button" class="small" data-size="16">fat</button>
+            <button type="button" class="small" id="eraserBtn">eraser</button>
+            <button type="button" class="small danger" id="boardClearBtn">wipe it</button>
+          </div>
+        </div>
+        <canvas id="board" width="960" height="540"></canvas>
+      </div>
     </section>
   </main>
 
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="app.js?v=4"></script>
+  <script type="module" src="app.js?v=6"></script>
 </body>
 </html>
