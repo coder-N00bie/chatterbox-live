@@ -734,6 +734,8 @@ function renderAdmin() {
   const hereCount = adminData.devices.filter(d => live[d.id] || (new Date(now) - new Date(d.last_seen)) < 40000).length;
   $("adminMeta").textContent = `${adminData.devices.length} devices have been here · ${hereCount} here now · ${adminData.bans.length} bans`;
 
+  renderAdminRooms();
+
   const tb = $("adminRows");
   tb.replaceChildren();
   if (!rows.length) {
@@ -790,6 +792,45 @@ function renderAdmin() {
     u.onclick = async () => { if (await adminCall("admin_unban", { p_kind: ban.kind, p_value: ban.value })) adminLoad(); };
     li.append(txt, u);
     bl.append(li);
+  }
+}
+
+// every room that exists right now, secret ones included (rooms only exist while someone's in them)
+function renderAdminRooms() {
+  const rooms = new Map();
+  for (const p of lobbyPeople()) {
+    if (!p.room) continue;
+    const r = rooms.get(p.room) || { id: p.room, name: null, priv: false, people: [] };
+    if (p.roomName && (!r.name || r.name === "secret room")) r.name = p.roomName;
+    r.priv = r.priv || !!p.priv;
+    r.people.push(p);
+    rooms.set(p.room, r);
+  }
+  const list = [...rooms.values()].sort((a, b) => (b.priv - a.priv) || (b.people.length - a.people.length));
+  const secret = list.filter(r => r.priv).length;
+  $("adminRoomCount").textContent = list.length ? `· ${list.length} room${list.length > 1 ? "s" : ""}, ${secret} secret` : "";
+  const ul = $("adminRooms"); ul.replaceChildren();
+  if (!list.length) ul.append(el("li", "empty", "no rooms open right now."));
+  for (const r of list) {
+    const li = el("li", "room-item" + (r.priv ? " secret" : ""));
+    const info = el("div");
+    const nm = el("div", "rname", r.name || "secret room");
+    if (r.priv) nm.append(el("span", "tag", "secret"));
+    info.append(nm);
+    const ppl = el("div", "people");
+    const seats = el("span", "seats");
+    for (let i = 0; i < MAX_PER_ROOM; i++) seats.append(el("i", i < r.people.length ? "f" : ""));
+    ppl.append(seats, document.createTextNode(`code ${r.id} · ` + r.people.map(p => p.name).join(", ")));
+    info.append(ppl);
+    const full = r.people.length >= MAX_PER_ROOM;
+    const btn = el("button", full ? "" : "primary", full ? "full" : "join");
+    btn.disabled = full;
+    btn.onclick = () => {
+      if (!profile) return toast("pick a name first (close admin), then come back to join");
+      joinRoom(r.id, r.name || "secret room", r.priv).then(() => { if (current && r.name) current.named = true; });
+    };
+    li.append(info, btn);
+    ul.append(li);
   }
 }
 

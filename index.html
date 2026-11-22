@@ -8,7 +8,7 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23050403'/><text x='50' y='72' font-size='64' text-anchor='middle' fill='%23ff9a1f' font-family='monospace'>C</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
   <header class="topbar">
@@ -52,6 +52,9 @@
             <button type="button" id="adminExit" class="danger">close admin</button>
           </div>
         </div>
+        <h3 class="admin-sub first">rooms right now <span class="muted" id="adminRoomCount"></span></h3>
+        <ul id="adminRooms" class="room-list admin-rooms"></ul>
+        <h3 class="admin-sub">everyone</h3>
         <div class="admin-filters">
           <button type="button" class="small on" data-af="all">everyone</button>
           <button type="button" class="small" data-af="here">here now</button>
@@ -178,6 +181,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script type="module" src="app.js?v=7"></script>
+  <script type="module" src="app.js?v=8"></script>
 </body>
 </html>
